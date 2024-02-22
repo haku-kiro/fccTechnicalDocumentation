@@ -7,6 +7,36 @@ body {
     list-style: none;
 }
 
+header {
+    font-weight: 800;
+    font-size: 1.25em;
+}
+
+code {
+    padding: 10px 0px;
+    white-space: pre; /* we do this to preserve whitespace */
+}
+
+section {
+    padding: 20px 0px;
+}
+
+a {
+    padding: 2px 0px;
+    text-decoration: none;
+    color: black;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: white;
+    background-color: black;
+}
+
+nav a {
+    display: block;
+}
+
 .shared-flex-item {
     padding: 5px;
     display: block;
@@ -14,14 +44,14 @@ body {
 
 #navbar {
     width: 20vw;
-}
-
-nav a {
-    display: block;
+    position: -webkit-sticky; /* Safari */
+    position: sticky;
+    top: 0;
+    align-self: flex-start; /* required to be made sticky in flexbox */
 }
 
 #main-doc {
-    width: 70vw;
+    width: 75vw;
 }
 
 @media only screen and (max-width: 600px) {
@@ -31,6 +61,7 @@ nav a {
 
     #navbar {
         width: 100vw;
+        background-color: white;
     }
 
     #main-doc {

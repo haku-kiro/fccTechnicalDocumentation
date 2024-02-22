@@ -4,54 +4,182 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="styles.css" type="text/css" media="screen" />
-    <title>Technical documentation</title>
+    <title>Distributed Tasks|Elixir</title>
   </head>
   <body>
     <nav id="navbar" class="shared-flex-item">
-        <header>todo technical documentation</header>
-        <a href="#todo_section_1" class="nav-link">todo_section_1</a>
-        <a href="#todo_section_2" class="nav-link">todo_section_2</a>
-        <a href="#todo_section_3" class="nav-link">todo_section_3</a>
-        <a href="#todo_section_4" class="nav-link">todo_section_4</a>
-        <a href="#todo_section_5" class="nav-link">todo_section_5</a>
+        <header>Distributed tasks in Elixir</header>
+        <a href="#Overview" class="nav-link">Overview</a>
+        <a href="#Defining_the_Supervisor_Application" class="nav-link">Defining the Supervisor Application</a>
+        <a href="#Adding_the_Task_Supervisor_to_the_Supervision_Tree" class="nav-link">Adding the Task Supervisor to the Supervision Tree</a>
+        <a href="#Sending_Messages_with_Supervised_Tasks" class="nav-link">Sending Messages with Supervised Tasks</a>
+        <a href="#Responding_to_Messages_from_Remote_Nodes" class="nav-link">Responding to Messages from Remote Nodes</a>
     </nav>
     <div id="main-doc" class="shared-flex-item">
-        <section id="todo_section_1" class="main-section">
-            <header>todo_section_1</header>
-            <p>this is some text</p>
-            <p>this is some text</p>
-            <code></code>
-        </section>
-        <section id="todo_section_2" class="main-section">
-            <header>todo_section_2</header>
-            <p>this is some text</p>
-            <p>this is some text</p>
-            <code></code>
+        <section id="Overview" class="main-section">
+            <header>Overview</header>
+            <p>Distributed tasks allow us to spawn supervised tasks across nodes. We’ll build a simple supervisor application that leverages distributed tasks to allow users to chat with one another via an iex session, across distributed nodes.</p>
+            <p>Please take note, this information is taken directly from <a href="https://elixirschool.com/en/lessons/advanced/otp_distribution#distributed-tasks-5">elixirschool.com</a>. Please consider fewing the lessons there if you want to learn more about elixir, it's a fantastic resource!</p>
+            <p>Please ensure that you have the following setup prior to iterating through this document.</p>
             <ul>
-                <li></li>
-                <li></li>
-                <li></li>
-                <li></li>
-                <li></li>
+                <li>Elixir.</li>
+                <li>Erlang version that matches/ works with your elixir version.</li>
+                <li>Some basic understanding of iex and your terminal.</li>
+                <li>An editor you feel comfortable coding in.</li>
             </ul>
         </section>
-        <section id="todo_section_3" class="main-section">
-            <header>todo_section_3</header>
-            <p>this is some text</p>
-            <p>this is some text</p>
-            <code></code>
+        <section id="Defining_the_Supervisor_Application" class="main-section">
+            <header>Defining the Supervisor Application</header>
+            <p>Firstly, we generate a supervisor application.</p>
+            <p>To generate your app, run the following in your terminal.</p>
+            <code>mix new chat --sup</code>
         </section>
-        <section id="todo_section_4" class="main-section">
-            <header>todo_section_4</header>
-            <p>this is some text</p>
-            <p>this is some text</p>
-            <code></code>
+        <section id="Adding_the_Task_Supervisor_to_the_Supervision_Tree" class="main-section">
+            <header>Adding the Task Supervisor to the Supervision Tree</header>
+            <p>A Task Supervisor dynamically supervises tasks. It is started with no children, often under a supervisor of its own, and can be used later on to supervise any number of tasks.</p>
+            <p>We’ll add a Task Supervisor to our app’s supervision tree and name it Chat.TaskSupervisor</p>
+            <code>
+# lib/chat/application.ex
+defmodule Chat.Application do
+  @moduledoc false
+
+  use Application
+
+  def start(_type, _args) do
+    children = [
+      {Task.Supervisor, name: Chat.TaskSupervisor}
+    ]
+
+    opts = [strategy: :one_for_one, name: Chat.Supervisor]
+    Supervisor.start_link(children, opts)
+  end
+end
+            </code>
+            <p>Now we know that wherever our application is started on a given node, the Chat.Supervisor is running and ready to supervise tasks.</p>
         </section>
-        <section id="todo_section_5" class="main-section">
-            <header>todo_section_5</header>
-            <p>this is some text</p>
-            <p>this is some text</p>
-            <code></code>
+        <section id="Sending_Messages_with_Supervised_Tasks" class="main-section">
+            <header>Sending Messages with Supervised Tasks</header>
+            <p>We’ll start supervised tasks with the Task.Supervisor.async/5 function.</p>
+            <p>This function must take in four arguments:</p>
+            <ul>
+                <li>The supervisor we want to use to supervise the task. This can be passed in as a tuple of {SupervisorName, remote_node_name} in order to supervise the task on the remote node.</li>
+                <li>The name of the module on which we want to execute a function</li>
+                <li>The name of the function we want to execute</li>
+                <li>Any arguments that need to be supplied to that function</li>
+            </ul>
+            <p>You can pass in a fifth, optional argument describing shutdown options. We won’t worry about that here.</p>
+            <p>Our Chat application is pretty simple. It sends messages to remote nodes and remote nodes respond to those messages by IO.puts-ing them out to the STDOUT of the remote node.</p>
+            <p>First, let’s define a function, Chat.receive_message/1, that we want our task to execute on a remote node.</p>
+            <code>
+# lib/chat.ex
+defmodule Chat do
+  def receive_message(message) do
+    IO.puts message
+  end
+end
+            </code>
+            <p>Next up, let’s teach the Chat module how to send the message to a remote node using a supervised task. We’ll define a method Chat.send_message/2 that will enact this process:</p>
+            <code>
+# lib/chat.ex
+defmodule Chat do
+  ...
+
+  def send_message(recipient, message) do
+    spawn_task(__MODULE__, :receive_message, recipient, [message])
+  end
+
+  def spawn_task(module, fun, recipient, args) do
+    recipient
+    |> remote_supervisor()
+    |> Task.Supervisor.async(module, fun, args)
+    |> Task.await()
+  end
+
+  defp remote_supervisor(recipient) do
+    {Chat.TaskSupervisor, recipient}
+  end
+end
+            </code>
+            <p>Let's see it in action.</p>
+            <p>In one terminal window, start up our chat app in a named iex session</p>
+            <code>
+iex --sname alex@localhost -S mix
+            </code>
+            <p>Open up another terminal window to start the app on a different named node:</p>
+            <code>
+iex --sname kate@localhost -S mix
+            </code>
+            <p>Now, from the alex node, we can send a message to the kate node:</p>
+            <code>
+iex(alex@localhost)> Chat.send_message(:kate@localhost, "hi")
+:ok
+            </code>
+            <p>Switch to the kate window and you should see the message:</p>
+            <code>
+iex(kate@localhost)> hi
+            </code>
+            <p>The kate node can respond back to the alex node:</p>
+            <code>
+iex(kate@localhost)> hi
+Chat.send_message(:alex@localhost, "how are you?")
+:ok
+iex(kate@localhost)>
+            </code>
+            <p>And it will show up in the alex node’s iex session:</p>
+            <code>
+iex(alex@localhost)> how are you?
+            </code>
+            <p>Let’s revisit our code and break down what’s happening here.</p>
+            <p>We have a function Chat.send_message/2 that takes in the name of the remote node on which we want to run our supervised tasks and the message we want to send that node.</p>
+            <p>That function calls our spawn_task/4 function which starts an async task running on the remote node with the given name, supervised by the Chat.TaskSupervisor on that remote node. We know that the Task Supervisor with the name Chat.TaskSupervisor is running on that node because that node is also running an instance of our Chat application and the Chat.TaskSupervisor is started up as part of the Chat app’s supervision tree.</p>
+            <p>We are telling the Chat.TaskSupervisor to supervise a task that executes the Chat.receive_message function with an argument of whatever message was passed down to spawn_task/4 from send_message/2.</p>
+            <p>So, Chat.receive_message("hi") is called on the remote, kate, node, causing the message "hi", to be put out to that node’s STDOUT stream. In this case, since the task is being supervised on the remote node, that node is the group manager for this I/O process.</p>
+        </section>
+        <section id="Responding_to_Messages_from_Remote_Nodes" class="main-section">
+            <header>Responding to Messages from Remote Nodes</header>
+            <p>Let’s make our Chat app a little smarter. So far, any number of users can run the application in a named iex session and start chatting. But let’s say there is a medium-sized white dog named Moebi who doesn’t want to be left out. Moebi wants to be included in the Chat app but sadly he does not know how to type, because he is a dog. So, we’ll teach our Chat module to respond to any messages sent to a node named moebi@localhost on Moebi’s behalf. No matter what you say to Moebi, he will respond with "chicken?", because his one true desire is to eat chicken.</p>
+            <p>We’ll define another version of our send_message/2 function that pattern matches on the recipient argument. If the recipient is :moebi@locahost, we will</p>
+            <ul>
+                <li>Grab the name of the current node using Node.self()</li>
+                <li>Give the name of the current node, i.e. the sender, to a new function receive_message_for_moebi/2, so that we can send a message back to that node.</li>
+            </ul>
+            <code>
+# lib/chat.ex
+...
+def send_message(:moebi@localhost, message) do
+  spawn_task(__MODULE__, :receive_message_for_moebi, :moebi@localhost, [message, Node.self()])
+end
+            </code>
+            <p>Next up, we’ll define a function receive_message_for_moebi/2 that IO.puts out the message in the moebi node’s STDOUT stream and sends a message back to the sender:</p>
+            <code>
+# lib/chat.ex
+...
+def receive_message_for_moebi(message, from) do
+  IO.puts message
+  send_message(from, "chicken?")
+end
+            </code>
+            <p>By calling send_message/2 with the name of the node that sent the original message (the “sender node”) we are telling the remote node to spawn an supervised task back on that sender node.</p>
+            <p>Let’s see it in action. In three different terminal windows, open three different named nodes:</p>
+            <code>
+iex --sname alex@localhost -S mix
+            </code>
+            <code>
+iex --sname kate@localhost -S mix
+            </code>
+            <code>
+iex --sname moebi@localhost -S mix
+            </code>
+            <p>Let’s have alex send a message to moebi:</p>
+            <code>
+iex(alex@localhost)> Chat.send_message(:moebi@localhost, "hi")
+chicken?
+:ok
+            </code>
+            <p>We can see that the alex node received the response, "chicken?". If we open the kate node, we’ll see that no message was received, since neither alex nor moebi send her one (sorry kate). And if we open the moebi node’s terminal window, we’ll see the message that the alex node sent:</p>
+            <code>
+iex(moebi@localhost)> hi
+            </code>
         </section>
     </div>
   </body>
